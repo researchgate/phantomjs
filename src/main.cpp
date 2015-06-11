@@ -1,76 +1,93 @@
-/*
-  This file is part of the PhantomJS project from Ofi Labs.
-
-  Copyright (C) 2011 Ariya Hidayat <ariya.hidayat@gmail.com>
-
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of the <organization> nor the
-      names of its contributors may be used to endorse or promote products
-      derived from this software without specific prior written permission.
-
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-  ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-  (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
-#ifdef _WIN32
-#define NOMINMAX
-#endif
-
-#include "consts.h"
-#include "utils.h"
-#include "env.h"
-#include "phantom.h"
-#include "crashdump.h"
-
+#include <QCoreApplication>
 #include <QApplication>
-#include <QSslSocket>
-#include <QIcon>
+#include <QDir>
+#include <QFile>
+#include <httpserver/httplistener.h>
+#include <logging/filelogger.h>
+#include "requesthandler.h"
 
-int main(int argc, char** argv)
-{
-    CrashHandler crash_guard;
-    QApplication app(argc, argv);
+/** Name of this application */
+#define APPNAME "Demo2"
 
-    app.setWindowIcon(QIcon(":/phantomjs-icon.png"));
-    app.setApplicationName("PhantomJS");
-    app.setOrganizationName("Ofi Labs");
-    app.setOrganizationDomain("www.ofilabs.com");
-    app.setApplicationVersion(PHANTOMJS_VERSION_STRING);
+/** Publisher of this application */
+#define ORGANISATION "Butterfly"
 
-    // Registering an alternative Message Handler
-    qInstallMessageHandler(Utils::messageHandler);
 
-#if defined(Q_OS_LINUX)
-    if (QSslSocket::supportsSsl()) {
-        // Don't perform on-demand loading of root certificates on Linux
-        QSslSocket::addDefaultCaCertificates(QSslSocket::systemCaCertificates());
+/** The HTTP listener of the application */
+HttpListener* listener;
+
+/** Logger class */
+FileLogger* logger;
+
+/** Search the configuration file */
+QString searchConfigFile() {
+    QString binDir=QCoreApplication::applicationDirPath();
+    QString appName=QCoreApplication::applicationName();
+    QString fileName(appName+".ini");
+
+    QStringList searchList;
+    searchList.append(binDir);
+    searchList.append(binDir+"/etc");
+    searchList.append(binDir+"/../etc");
+    searchList.append(binDir+"/../../etc"); // for development without shadow build
+    searchList.append(binDir+"/../"+appName+"/etc"); // for development with shadow build
+    searchList.append(binDir+"/../../"+appName+"/etc"); // for development with shadow build
+    searchList.append(binDir+"/../../../"+appName+"/etc"); // for development with shadow build
+    searchList.append(binDir+"/../../../../"+appName+"/etc"); // for development with shadow build
+    searchList.append(binDir+"/../../../../../"+appName+"/etc"); // for development with shadow build
+    searchList.append(QDir::rootPath()+"etc/opt");
+    searchList.append(QDir::rootPath()+"etc");
+
+    foreach (QString dir, searchList) {
+        QFile file(dir+"/"+fileName);
+        if (file.exists()) {
+            // found
+            fileName=QDir(file.fileName()).canonicalPath();
+            qDebug("Using config file %s",qPrintable(fileName));
+            return fileName;
+        }
     }
-#endif
 
-    // Get the Phantom singleton
-    Phantom *phantom = Phantom::instance();
-
-    // Start script execution
-    if (phantom->execute()) {
-        app.exec();
+    // not found
+    foreach (QString dir, searchList) {
+        qWarning("%s/%s not found",qPrintable(dir),qPrintable(fileName));
     }
+    qFatal("Cannot find config file %s",qPrintable(fileName));
+    return 0;
+}
 
-    // End script execution: delete the phantom singleton and set execution return value
-    int retVal = phantom->returnValue();
-    delete phantom;
-    return retVal;
+/**
+  Entry point of the program.
+*/
+int main(int argc, char *argv[]) {
+
+    // Initialize the core application
+    QApplication* app=new QApplication(argc, argv);
+    app->setApplicationName(APPNAME);
+    app->setOrganizationName(ORGANISATION);
+
+    // Find the configuration file
+    QString configFileName=searchConfigFile();
+
+    // Configure logging
+    QSettings* logSettings=new QSettings(configFileName,QSettings::IniFormat,app);
+    logSettings->beginGroup("logging");
+    logger=new FileLogger(logSettings,10000,app);
+    logger->installMsgHandler();
+
+    // Log the library version
+    qDebug("QtWebAppLib has version %s",getQtWebAppLibVersion());
+
+    // Configure and start the TCP listener
+    qDebug("ServiceHelper: Starting service");
+    QSettings* listenerSettings=new QSettings(configFileName,QSettings::IniFormat,app);
+    listenerSettings->beginGroup("listener");
+    listener=new HttpListener(listenerSettings,new RequestHandler(app),app);
+
+    if (logSettings->value("bufferSize",0).toInt()>0 && logSettings->value("minLevel",0).toInt()>0) {
+        qDebug("You see these debug messages because the logging buffer is enabled");
+    }
+    qWarning("Application has started");
+
+    return app->exec();
 }
