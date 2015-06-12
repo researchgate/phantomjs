@@ -6,10 +6,16 @@ CONFIG += console
 DESTDIR = ../bin
 
 HEADERS += \
-    requesthandler.h
+    requesthandler.h \
+    renderingsettings.h \
+    pagesettings.h \
+    printersettings.h
 
 SOURCES += main.cpp \
-    requesthandler.cpp
+    requesthandler.cpp \
+    renderingsettings.cpp \
+    pagesettings.cpp \
+    printersettings.cpp
 
 include(logging/logging.pri)
 include(httpserver/httpserver.pri)

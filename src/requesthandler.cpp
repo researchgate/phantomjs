@@ -1,17 +1,33 @@
 #include <logging/filelogger.h>
-#include <QtWebKitWidgets>
 #include "requesthandler.h"
+#include <QJsonDocument>
+#include "renderingsettings.h">
 
 /** Logger class */
 extern FileLogger* logger;
 
 RequestHandler::RequestHandler(QObject* parent)
-    :HttpRequestHandler(parent) {}
+    :HttpRequestHandler(parent) {
+    m_page = NULL;
+}
+
+RequestHandler::~RequestHandler() {
+    if (m_page != NULL) {
+        delete m_page;
+        m_page = NULL;
+    }
+}
 
 void RequestHandler::service(HttpRequest& request, HttpResponse& response) {
     if (request.getMethod().toUpper() != "POST") {
-        qDebug("Endpoint was called with method [" + request.getMethod().toUpper() + "]");
+        qDebug("Endpoint was called with method [%s]", request.getMethod().toUpper().data());
         response.setStatus(405, "Only Post request supported");
+        logger->clear();
+        return;
+    }
+    if (request.getHeader("Content-Type") != "application/json") {
+        qDebug("Endpoint was called with Content-Type [%s]", request.getHeader("Content-Type").data());
+        response.setStatus(406, "Only requests with Content-Type application/json are supported");
         logger->clear();
         return;
     }
@@ -19,10 +35,23 @@ void RequestHandler::service(HttpRequest& request, HttpResponse& response) {
     QByteArray path = request.getPath();
     qDebug("Conroller: path=%s",path.data());
 
-    QWebPage page;
-    QSize viewportSize(640, 480);
-    page.setViewportSize(viewportSize);
-    page.mainFrame()->setHtml(body);
+
+    RenderingSettings pdfSettings;
+    QJsonDocument json = QJsonDocument::fromJson(body);
+    if (!json.isObject()) {
+        qDebug("Body was not in valid json format");
+        response.setStatus(405, "The body must contain valid json.");
+        logger->clear();
+        return;
+    }
+
+    pdfSettings.read(json.object());
+    if (m_page == NULL) {
+        m_page = new QWebPage();
+    }
+    QSize viewportSize(pdfSettings.getPageSettings().getViewportWidth(), pdfSettings.getPageSettings().getViewportHeight());
+    m_page->setViewportSize(viewportSize);
+    m_page->mainFrame()->setHtml(pdfSettings.getPageSettings().getHtml());
 
     QPrinter printer(QPrinter::HighResolution);
     QString filename = "/tmp/" + QUuid::createUuid().toString() + ".pdf";
@@ -30,12 +59,29 @@ void RequestHandler::service(HttpRequest& request, HttpResponse& response) {
     printer.setOutputFileName(filename);
     printer.setResolution(72);
     printer.setPageOrientation(QPageLayout::Portrait);
+
+    static const struct {
+                QString format;
+                QPrinter::Unit unit;
+            } units[] = {
+                { "mm", QPrinter::Millimeter },
+                { "pt", QPrinter::Point },
+                { "in", QPrinter::Inch },
+                { "px", QPrinter::DevicePixel }
+            };
+
     printer.setPaperSize(QPrinter::A4);
-    const QSize pageSize = page.mainFrame()->contentsSize();
-    const QSizeF sizePt(595.4069,
-                        842.0754);
-    printer.setPaperSize(sizePt, QPrinter::Point);
-    page.mainFrame()->print(&printer);
+    const QSizeF sizePt(pdfSettings.getPrinterSettings().getPaperSizeWidth(),
+                        pdfSettings.getPrinterSettings().getPaperSizeHeight());
+    QPrinter::Unit unit = QPrinter::Point;
+    for (uint i = 0; i < sizeof(units) / sizeof(units[0]); ++i) {
+        if (pdfSettings.getPrinterSettings().getPaperSizeUnit().compare(units[i].format, Qt::CaseInsensitive) == 0) {
+            unit = units[i].unit;
+            break;
+        }
+    }
+    printer.setPaperSize(sizePt, unit);
+    m_page->mainFrame()->print(&printer);
     QFile file(filename);
     if (!file.open(QIODevice::ReadOnly)) {
         response.setStatus(404, "Could not open temporary pdf file");
@@ -53,26 +99,6 @@ void RequestHandler::service(HttpRequest& request, HttpResponse& response) {
     response.write(pdfData,true);
     qDebug("Conroller: finished request");
     logger->clear();
-}
-
-qreal RequestHandler::stringToPointSize(const QString &string) const
-{
-    static const struct {
-        QString unit;
-        qreal factor;
-    } units[] = {
-        { "mm", 72 / 25.4 },
-        { "cm", 72 / 2.54 },
-        { "in", 72 },
-        { "px", 72.0 / 72.0 },
-        { "", 72.0 / 72.0 }
-    };
-    for (uint i = 0; i < sizeof(units) / sizeof(units[0]); ++i) {
-        if (string.endsWith(units[i].unit)) {
-            QString value = string;
-            value.chop(units[i].unit.length());
-            return value.toDouble() * units[i].factor;
-        }
-    }
-    return 0;
+    delete m_page;
+    m_page = NULL;
 }
