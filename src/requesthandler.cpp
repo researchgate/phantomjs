@@ -51,14 +51,19 @@ void RequestHandler::service(HttpRequest& request, HttpResponse& response) {
     }
     QSize viewportSize(pdfSettings.getPageSettings().getViewportWidth(), pdfSettings.getPageSettings().getViewportHeight());
     m_page->setViewportSize(viewportSize);
+
+    QEventLoop loop;
+    loop.connect(m_page, SIGNAL(loadFinished(bool)), SLOT(quit()), Qt::QueuedConnection);
     m_page->mainFrame()->setHtml(pdfSettings.getPageSettings().getHtml());
+    loop.exec();
 
     QPrinter printer(QPrinter::HighResolution);
     QString filename = "/tmp/" + QUuid::createUuid().toString() + ".pdf";
     printer.setOutputFormat(QPrinter::PdfFormat);
     printer.setOutputFileName(filename);
-    printer.setResolution(72);
-    printer.setPageOrientation(QPageLayout::Portrait);
+    printer.setResolution(pdfSettings.getPrinterSettings().getDpi());
+    QPageLayout::Orientation pageOrientation = pdfSettings.getPrinterSettings().getPageOrientation() == "landscape" ? QPageLayout::Landscape : QPageLayout::Portrait;
+    printer.setPageOrientation(pageOrientation);
 
     static const struct {
                 QString format;

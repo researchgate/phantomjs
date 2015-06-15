@@ -9,13 +9,15 @@ HEADERS += \
     requesthandler.h \
     renderingsettings.h \
     pagesettings.h \
-    printersettings.h
+    printersettings.h \
+    pdfserve.h
 
 SOURCES += main.cpp \
     requesthandler.cpp \
     renderingsettings.cpp \
     pagesettings.cpp \
-    printersettings.cpp
+    printersettings.cpp \
+    pdfserve.cpp
 
 include(logging/logging.pri)
 include(httpserver/httpserver.pri)

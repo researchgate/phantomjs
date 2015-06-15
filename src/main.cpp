@@ -5,12 +5,13 @@
 #include <httpserver/httplistener.h>
 #include <logging/filelogger.h>
 #include "requesthandler.h"
+#include "pdfserve.h"
 
 /** Name of this application */
-#define APPNAME "Demo2"
+#define APPNAME "pdfmaker"
 
 /** Publisher of this application */
-#define ORGANISATION "Butterfly"
+#define ORGANISATION "ResearchGate"
 
 
 /** The HTTP listener of the application */
@@ -89,5 +90,7 @@ int main(int argc, char *argv[]) {
     }
     qWarning("Application has started");
 
-    return app->exec();
+    int retValue = app->exec();
+    qWarning("Shutting down application");
+    return retValue;
 }

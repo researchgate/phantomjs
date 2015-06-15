@@ -20,6 +20,10 @@ qrc_*
 /symbols
 /src/qt/qtc-debugging-helper
 /src/phantomjs_plugin_import.cpp
+/src/pdfmaker_plugin_import.cpp
+.qmake.cache
+.qmake.stash
+src/qt/qtwebkit/Source/dummy.cpp
 
 # ignore ctags
 /tags
